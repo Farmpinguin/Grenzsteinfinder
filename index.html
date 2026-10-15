@@ -5,7 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#2e7d32">
 <title>Grenzsteinfinder</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <style>
+#map{height:340px;border-radius:10px;border:1px solid var(--border)}
+.leaflet-container{font:inherit;font-size:12px}
+select{font:inherit;font-size:15px;padding:10px;border-radius:10px;border:1px solid var(--border);background:#fff}
 :root{--green:#2e7d32;--green-dark:#1b5e20;--bg:#f4f6f2;--card:#fff;--text:#1d1f1b;--muted:#6b7066;--border:#dde2d8;--ok:#2e9e3a;--warn:#e8a317;--bad:#d03b3b}
 *{box-sizing:border-box}
 body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);-webkit-tap-highlight-color:transparent}
@@ -68,6 +73,21 @@ input[type=file]{display:none}
     <div id="dist">–</div>
     <div id="sub" class="muted">&nbsp;</div>
     <button id="measureBtn" class="big primary" style="margin-top:10px" disabled>Gefunden – Position messen (5 s)</button>
+  </div>
+
+  <div class="card">
+    <div class="row" style="justify-content:space-between;margin-bottom:8px">
+      <strong>Karte</strong>
+      <div class="row">
+        <select id="layerSel">
+          <option value="dopflst">Luftbild + Flurstücke</option>
+          <option value="dop">Luftbild</option>
+          <option value="osm">Straßenkarte</option>
+        </select>
+        <button id="followBtn">Folgen: an</button>
+      </div>
+    </div>
+    <div id="map"></div>
   </div>
 
   <div class="card">
@@ -190,17 +210,75 @@ $('file').addEventListener('change', async e => {
     }
     msg((points.length - before) + ' Punkte importiert.');
   }catch(err){ msg('Import fehlgeschlagen: ' + err.message); }
-  e.target.value = ''; save(); renderList();
+  e.target.value = ''; save(); renderList(); fitStones();
 });
+
+/* ---------- Karte ---------- */
+let map = null, layers = {}, stoneLayer = null, meMarker = null, accCircle = null, line = null, follow = true;
+function initMap(){
+  if(!window.L){ $('map').innerHTML = '<div class="muted" style="padding:12px">Karte konnte nicht geladen werden (kein Internet?).</div>'; return; }
+  map = L.map('map', {maxZoom: 22}).setView([48.9, 11.4], 7);
+  const att = '© Bayerische Vermessungsverwaltung (CC BY 4.0)';
+  layers.dop = L.tileLayer.wms('https://geoservices.bayern.de/od/wms/dop/v1/dop40', {layers: 'by_dop40c', format: 'image/jpeg', maxZoom: 22, attribution: att});
+  layers.flst = L.tileLayer.wms('https://geoservices.bayern.de/od/wms/alkis/v1/parzellarkarte', {layers: 'by_alkis_parzellarkarte_umr_gelb', format: 'image/png', transparent: true, maxZoom: 22, attribution: att});
+  layers.osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 22, maxNativeZoom: 19, attribution: '© OpenStreetMap'});
+  stoneLayer = L.layerGroup().addTo(map);
+  let v = 'dopflst'; try{ v = localStorage.getItem(KEY + '_layer') || v; }catch(e){}
+  $('layerSel').value = v; setLayer(v);
+  map.on('dragstart', () => setFollow(false));
+  drawStones(); fitStones();
+}
+function setLayer(v){
+  if(!map) return;
+  Object.values(layers).forEach(l => map.removeLayer(l));
+  if(v === 'osm') layers.osm.addTo(map);
+  else { layers.dop.addTo(map); if(v === 'dopflst') layers.flst.addTo(map); }
+  try{ localStorage.setItem(KEY + '_layer', v); }catch(e){}
+}
+function setFollow(on){ follow = on; $('followBtn').textContent = 'Folgen: ' + (on ? 'an' : 'aus'); if(on) updateMapPos(true); }
+function fitStones(){ if(map && points.length) map.fitBounds(points.map(p => [p.lat, p.lon]), {padding: [30, 30], maxZoom: 18}); }
+function drawStones(){
+  if(!map) return;
+  stoneLayer.clearLayers();
+  points.forEach((p, i) => {
+    L.circleMarker([p.lat, p.lon], {radius: i === sel ? 10 : 7, color: '#fff', weight: 2, fillOpacity: 1,
+      fillColor: p.found ? '#2e9e3a' : (i === sel ? '#d03b3b' : '#e8a317')})
+      .bindTooltip(p.name).on('click', () => selectPoint(i, false)).addTo(stoneLayer);
+  });
+}
+function updateMapPos(force){
+  if(!map || !pos) return;
+  const ll = [pos.lat, pos.lon];
+  if(!meMarker){
+    accCircle = L.circle(ll, {radius: pos.acc, color: '#1e6fd9', weight: 1, fillOpacity: 0.12}).addTo(map);
+    meMarker = L.circleMarker(ll, {radius: 7, color: '#fff', weight: 3, fillColor: '#1e6fd9', fillOpacity: 1}).addTo(map);
+  } else { meMarker.setLatLng(ll); accCircle.setLatLng(ll).setRadius(pos.acc); }
+  const t = points[sel];
+  if(t){
+    const lls = [ll, [t.lat, t.lon]];
+    if(line) line.setLatLngs(lls); else line = L.polyline(lls, {color: '#ffffff', weight: 3, dashArray: '6 6'}).addTo(map);
+  } else if(line){ map.removeLayer(line); line = null; }
+  if(follow){
+    if(force || map.getZoom() < 16) map.setView(ll, Math.max(map.getZoom(), 19), {animate: false});
+    else map.panTo(ll, {animate: false});
+  }
+}
+function selectPoint(i, scroll = true){
+  sel = i; save(); renderList(); updateNav(); updateMapPos();
+  if(scroll) window.scrollTo({top: 0, behavior: 'smooth'});
+}
+$('layerSel').onchange = e => setLayer(e.target.value);
+$('followBtn').onclick = () => setFollow(!follow);
 
 /* ---------- Liste ---------- */
 function renderList(){
+  drawStones();
   const ul = $('plist'); ul.innerHTML = '';
   points.forEach((p, i) => {
     const li = document.createElement('li'); if(i === sel) li.className = 'sel';
     const d = pos ? offset(pos.lat, pos.lon, p.lat, p.lon).d : null;
     li.innerHTML = `<span>${p.found ? '<span class="found">✓</span> ' : ''}${p.name}</span><span class="d">${p.found ? 'Abw. ' + Math.round(p.found.dev*100) + ' cm' : fmtDist(d)}</span>`;
-    li.onclick = () => { sel = i; save(); renderList(); updateNav(); window.scrollTo({top: 0, behavior: 'smooth'}); };
+    li.onclick = () => selectPoint(i);
     ul.appendChild(li);
   });
   if(!points.length) ul.innerHTML = '<li class="muted" style="cursor:default">Noch keine Punkte – oben importieren.</li>';
@@ -224,7 +302,7 @@ function onPos(p){
   const [label, cls] = fixStatus(c.accuracy);
   $('fix').textContent = label; $('fix').className = 'pill ' + cls;
   $('acc').textContent = '± ' + (c.accuracy < 1 ? Math.round(c.accuracy*100) + ' cm' : c.accuracy.toFixed(1).replace('.', ',') + ' m');
-  updateNav(); renderListThrottled();
+  updateNav(); updateMapPos(); renderListThrottled();
 }
 let lt = 0; function renderListThrottled(){ const n = Date.now(); if(n - lt > 2000){ lt = n; renderList(); } }
 
@@ -356,7 +434,7 @@ $('exportBtn').onclick = () => {
 $('clearBtn').onclick = () => { if(confirm('Alle Punkte und Messungen löschen?')){ points = []; sel = -1; save(); renderList(); updateNav(); } };
 $('soundBtn').onclick = () => { soundOn = !soundOn; $('soundBtn').textContent = 'Ton: ' + (soundOn ? 'an' : 'aus'); if(!soundOn) contOff(); };
 
-load(); renderList(); updateNav();
+load(); initMap(); renderList(); updateNav();
 </script>
 </body>
 </html>
