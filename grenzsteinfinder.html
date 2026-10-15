@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2e7d32">
+<title>Grenzsteinfinder</title>
+<style>
+:root{--green:#2e7d32;--green-dark:#1b5e20;--bg:#f4f6f2;--card:#fff;--text:#1d1f1b;--muted:#6b7066;--border:#dde2d8;--ok:#2e9e3a;--warn:#e8a317;--bad:#d03b3b}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);-webkit-tap-highlight-color:transparent}
+header{background:var(--green);color:#fff;padding:10px 16px 12px;padding-top:calc(10px + env(safe-area-inset-top))}
+header .kit{font-size:12px;opacity:.85;letter-spacing:.3px}
+header .name{font-size:24px;font-weight:600;line-height:1.2}
+main{padding:12px 12px 90px;max-width:560px;margin:0 auto}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:12px}
+.row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;font-size:14px;font-weight:600;color:#fff;background:#888}
+.pill.ok{background:var(--ok)}.pill.warn{background:var(--warn);color:#2b2000}.pill.bad{background:var(--bad)}
+button,.btn{font:inherit;font-size:16px;padding:12px 14px;border-radius:10px;border:1px solid var(--border);background:#fff;color:var(--text);cursor:pointer}
+button.primary{background:var(--green);border-color:var(--green);color:#fff;font-weight:600}
+button.big{width:100%;font-size:18px;padding:16px}
+button:active{transform:scale(.98)}
+.muted{color:var(--muted);font-size:13px}
+#nav{text-align:center}
+#arrowWrap{width:240px;height:240px;margin:6px auto;position:relative}
+#arrow{width:100%;height:100%;transition:transform .25s linear}
+#target{width:240px;height:240px;margin:6px auto;display:none}
+#dist{font-size:52px;font-weight:700;line-height:1.1;font-variant-numeric:tabular-nums}
+#tname{font-size:18px;font-weight:600}
+#plist{list-style:none;margin:0;padding:0}
+#plist li{display:flex;justify-content:space-between;align-items:center;padding:12px 6px;border-bottom:1px solid var(--border);cursor:pointer}
+#plist li.sel{background:#e8f3e6;border-radius:8px}
+#plist li .d{font-variant-numeric:tabular-nums;color:var(--muted)}
+.found{color:var(--ok);font-weight:700}
+.bar{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid var(--border);padding:10px 12px calc(10px + env(safe-area-inset-bottom));display:flex;gap:8px;justify-content:center}
+.bar button{flex:1;max-width:180px}
+input[type=file]{display:none}
+#msg{min-height:18px}
+</style>
+</head>
+<body>
+<header><div class="kit">Pabst Precision Farming Kit</div><div class="name">Grenzsteinfinder</div></header>
+<main>
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <span id="fix" class="pill">Kein Signal</span>
+      <span id="acc" class="muted">–</span>
+    </div>
+    <div id="msg" class="muted" style="margin-top:6px"></div>
+    <button id="startBtn" class="primary big" style="margin-top:10px">Start (GPS, Ton, Kompass)</button>
+  </div>
+
+  <div class="card" id="nav">
+    <div id="tname">Kein Stein gewählt</div>
+    <div id="arrowWrap">
+      <svg id="arrow" viewBox="0 0 100 100"><circle cx="50" cy="50" r="47" fill="#f0f4ee" stroke="#cfd8ca" stroke-width="2"/><path d="M50 8 L74 62 L55 54 L55 88 L45 88 L45 54 L26 62 Z" fill="#2e7d32"/></svg>
+    </div>
+    <svg id="target" viewBox="-110 -110 220 220">
+      <circle r="100" fill="#f0f4ee" stroke="#cfd8ca" stroke-width="2"/>
+      <circle r="66" fill="none" stroke="#cfd8ca" stroke-width="1.5"/>
+      <circle r="33" fill="none" stroke="#cfd8ca" stroke-width="1.5"/>
+      <line x1="-100" y1="0" x2="100" y2="0" stroke="#cfd8ca"/><line x1="0" y1="-100" x2="0" y2="100" stroke="#cfd8ca"/>
+      <circle r="6" fill="#d03b3b"/>
+      <text id="tscale" x="0" y="-70" text-anchor="middle" font-size="11" fill="#6b7066"></text>
+      <g id="me"><circle r="9" fill="#2e7d32" stroke="#fff" stroke-width="3"/></g>
+    </svg>
+    <div id="dist">–</div>
+    <div id="sub" class="muted">&nbsp;</div>
+    <button id="measureBtn" class="big primary" style="margin-top:10px" disabled>Gefunden – Position messen (5 s)</button>
+  </div>
+
+  <div class="card">
+    <div class="row" style="justify-content:space-between;margin-bottom:6px">
+      <strong>Grenzsteine</strong>
+      <label class="btn" for="file">Importieren</label>
+      <input type="file" id="file" accept=".csv,.txt,.kml,.gpx,.geojson,.json,.zip">
+    </div>
+    <div class="muted" style="margin-bottom:6px">CSV (Name;Rechtswert;Hochwert in UTM32 oder Name;Breite;Länge), KML, GPX, GeoJSON oder Shapefile als ZIP</div>
+    <ul id="plist"></ul>
+  </div>
+</main>
+<div class="bar">
+  <button id="soundBtn">Ton: an</button>
+  <button id="exportBtn">Export</button>
+  <button id="clearBtn">Liste leeren</button>
+</div>
+
+<script>
+const R = 6378137, D2R = Math.PI/180;
+const KEY = 'grenzsteinfinder_v1';
+let points = [], sel = -1, pos = null, lastPos = null, moveHeading = null, compass = null;
+let soundOn = true, audio = null, contOsc = null, measuring = false;
+
+const $ = id => document.getElementById(id);
+function save(){ try{ localStorage.setItem(KEY, JSON.stringify({points, sel})); }catch(e){} }
+function load(){ try{ const s = JSON.parse(localStorage.getItem(KEY)); if(s){ points = s.points||[]; sel = s.sel ?? -1; } }catch(e){} }
+function msg(t){ $('msg').textContent = t; }
+
+/* ---------- UTM32 <-> WGS84 (ETRS89, GRS80) ---------- */
+const A = 6378137, F = 1/298.257222101, K0 = 0.9996, E2 = F*(2-F), EP2 = E2/(1-E2);
+function utmToLL(E, N, zone=32){
+  const x = E-500000, M = N/K0;
+  const mu = M/(A*(1-E2/4-3*E2*E2/64-5*E2**3/256));
+  const e1 = (1-Math.sqrt(1-E2))/(1+Math.sqrt(1-E2));
+  const p1 = mu+(3*e1/2-27*e1**3/32)*Math.sin(2*mu)+(21*e1*e1/16-55*e1**4/32)*Math.sin(4*mu)+(151*e1**3/96)*Math.sin(6*mu)+(1097*e1**4/512)*Math.sin(8*mu);
+  const s = Math.sin(p1), c = Math.cos(p1), t = Math.tan(p1);
+  const C1 = EP2*c*c, T1 = t*t, N1 = A/Math.sqrt(1-E2*s*s), R1 = A*(1-E2)/Math.pow(1-E2*s*s,1.5), D = x/(N1*K0);
+  const lat = p1-(N1*t/R1)*(D*D/2-(5+3*T1+10*C1-4*C1*C1-9*EP2)*D**4/24+(61+90*T1+298*C1+45*T1*T1-252*EP2-3*C1*C1)*D**6/720);
+  const lon = (D-(1+2*T1+C1)*D**3/6+(5-2*C1+28*T1-3*C1*C1+8*EP2+24*T1*T1)*D**5/120)/c;
+  return [lat/D2R, zone*6-183+lon/D2R];
+}
+function llToUtm(lat, lon, zone=32){
+  const p = lat*D2R, l = (lon-(zone*6-183))*D2R, s = Math.sin(p), c = Math.cos(p), t = Math.tan(p);
+  const N = A/Math.sqrt(1-E2*s*s), T = t*t, C = EP2*c*c, Aa = c*l;
+  const M = A*((1-E2/4-3*E2*E2/64-5*E2**3/256)*p-(3*E2/8+3*E2*E2/32+45*E2**3/1024)*Math.sin(2*p)+(15*E2*E2/256+45*E2**3/1024)*Math.sin(4*p)-(35*E2**3/3072)*Math.sin(6*p));
+  const E = K0*N*(Aa+(1-T+C)*Aa**3/6+(5-18*T+T*T+72*C-58*EP2)*Aa**5/120)+500000;
+  const Nn = K0*(M+N*t*(Aa*Aa/2+(5-T+9*C+4*C*C)*Aa**4/24+(61-58*T+T*T+600*C-330*EP2)*Aa**6/720));
+  return [E, Nn];
+}
+
+/* ---------- Geometrie ---------- */
+function offset(fromLat, fromLon, toLat, toLon){
+  const dN = (toLat-fromLat)*D2R*R, dE = (toLon-fromLon)*D2R*R*Math.cos(fromLat*D2R);
+  return {dN, dE, d: Math.hypot(dN, dE), brg: (Math.atan2(dE, dN)/D2R+360)%360};
+}
+function fmtDist(d){
+  if(d == null) return '–';
+  if(d < 1) return Math.round(d*100) + ' cm';
+  if(d < 10) return d.toFixed(2).replace('.', ',') + ' m';
+  if(d < 1000) return Math.round(d) + ' m';
+  return (d/1000).toFixed(1).replace('.', ',') + ' km';
+}
+
+/* ---------- Import ---------- */
+function num(s){ return parseFloat(String(s).trim().replace(/\s/g,'').replace(',', '.')); }
+function addPoint(name, a, b){
+  let lat, lon;
+  if(Math.abs(a) > 1000 || Math.abs(b) > 1000){
+    let E = a, N = b;
+    if(E > N){ [E, N] = [N, E]; }              // Hochwert ist der größere Wert
+    if(E > 1e7) E -= Math.floor(E/1e6)*1e6;    // Zonen-Präfix 32xxxxxx entfernen
+    [lat, lon] = utmToLL(E, N);
+  } else if(a > 40 && a < 60){ lat = a; lon = b; }
+  else { lat = b; lon = a; }
+  if(isFinite(lat) && isFinite(lon)) points.push({name: name || ('Stein ' + (points.length+1)), lat, lon, found: null});
+}
+function parseCSV(txt){
+  const lines = txt.split(/\r?\n/).filter(l => l.trim());
+  for(const line of lines){
+    const delim = line.includes(';') ? ';' : line.includes('\t') ? '\t' : ',';
+    const f = line.split(delim).map(x => x.trim().replace(/^"|"$/g,''));
+    const nums = [], texts = [];
+    f.forEach(x => { const v = num(x); (x !== '' && /^-?[\d\s.,]+$/.test(x) && isFinite(v)) ? nums.push(v) : texts.push(x); });
+    if(nums.length >= 2) addPoint(texts[0] || (nums.length >= 3 ? String(nums.shift()) : ''), nums[0], nums[1]);
+  }
+}
+function parseXML(txt){
+  const doc = new DOMParser().parseFromString(txt, 'application/xml');
+  doc.querySelectorAll('Placemark').forEach(pm => {
+    const c = pm.querySelector('Point coordinates'); if(!c) return;
+    const [lon, lat] = c.textContent.trim().split(',').map(Number);
+    points.push({name: pm.querySelector('name')?.textContent || ('Stein ' + (points.length+1)), lat, lon, found: null});
+  });
+  doc.querySelectorAll('wpt').forEach(w => points.push({name: w.querySelector('name')?.textContent || ('Stein ' + (points.length+1)), lat: +w.getAttribute('lat'), lon: +w.getAttribute('lon'), found: null}));
+}
+function parseGeoJSON(gj){
+  const feats = gj.features || (Array.isArray(gj) ? gj.flatMap(g => g.features||[]) : []);
+  feats.forEach(f => {
+    const g = f.geometry; if(!g) return;
+    const pr = f.properties || {};
+    const nm = pr.name || pr.Name || pr.NAME || pr.nr || pr.Nr || pr.punkt || pr.Punkt || pr.id;
+    const pts = g.type === 'Point' ? [g.coordinates] : g.type === 'MultiPoint' ? g.coordinates : [];
+    pts.forEach(c => addPoint(nm != null ? String(nm) : '', c[1], c[0]));
+  });
+}
+function loadScript(src){ return new Promise((ok, err) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = err; document.head.appendChild(s); }); }
+$('file').addEventListener('change', async e => {
+  const file = e.target.files[0]; if(!file) return;
+  const before = points.length, n = file.name.toLowerCase();
+  try{
+    if(n.endsWith('.zip')){
+      if(!window.shp) await loadScript('https://unpkg.com/shpjs@4.0.4/dist/shp.js');
+      parseGeoJSON(await shp(await file.arrayBuffer()));
+    } else {
+      const txt = await file.text();
+      if(n.endsWith('.kml') || n.endsWith('.gpx')) parseXML(txt);
+      else if(n.endsWith('.geojson') || n.endsWith('.json')) parseGeoJSON(JSON.parse(txt));
+      else parseCSV(txt);
+    }
+    msg((points.length - before) + ' Punkte importiert.');
+  }catch(err){ msg('Import fehlgeschlagen: ' + err.message); }
+  e.target.value = ''; save(); renderList();
+});
+
+/* ---------- Liste ---------- */
+function renderList(){
+  const ul = $('plist'); ul.innerHTML = '';
+  points.forEach((p, i) => {
+    const li = document.createElement('li'); if(i === sel) li.className = 'sel';
+    const d = pos ? offset(pos.lat, pos.lon, p.lat, p.lon).d : null;
+    li.innerHTML = `<span>${p.found ? '<span class="found">✓</span> ' : ''}${p.name}</span><span class="d">${p.found ? 'Abw. ' + Math.round(p.found.dev*100) + ' cm' : fmtDist(d)}</span>`;
+    li.onclick = () => { sel = i; save(); renderList(); updateNav(); window.scrollTo({top: 0, behavior: 'smooth'}); };
+    ul.appendChild(li);
+  });
+  if(!points.length) ul.innerHTML = '<li class="muted" style="cursor:default">Noch keine Punkte – oben importieren.</li>';
+}
+
+/* ---------- GPS ---------- */
+function fixStatus(acc){
+  if(acc == null) return ['Kein Signal', ''];
+  if(acc <= 0.05) return ['RTK Fix', 'ok'];
+  if(acc <= 0.5) return ['RTK Float', 'warn'];
+  return ['Kein RTK', 'bad'];
+}
+function onPos(p){
+  const c = p.coords;
+  pos = {lat: c.latitude, lon: c.longitude, acc: c.accuracy, t: p.timestamp, speed: c.speed};
+  if(measuring) measuring.push(pos);
+  if(lastPos){
+    const o = offset(lastPos.lat, lastPos.lon, pos.lat, pos.lon);
+    if(o.d > 0.4){ moveHeading = o.brg; lastPos = pos; }
+  } else lastPos = pos;
+  const [label, cls] = fixStatus(c.accuracy);
+  $('fix').textContent = label; $('fix').className = 'pill ' + cls;
+  $('acc').textContent = '± ' + (c.accuracy < 1 ? Math.round(c.accuracy*100) + ' cm' : c.accuracy.toFixed(1).replace('.', ',') + ' m');
+  updateNav(); renderListThrottled();
+}
+let lt = 0; function renderListThrottled(){ const n = Date.now(); if(n - lt > 2000){ lt = n; renderList(); } }
+
+/* ---------- Kompass ---------- */
+function onOrient(e){
+  if(e.webkitCompassHeading != null) compass = e.webkitCompassHeading;
+  else if(e.absolute && e.alpha != null) compass = (360 - e.alpha) % 360;
+  else return;
+  const so = (screen.orientation && screen.orientation.angle) || 0;
+  compass = (compass + so) % 360;
+  updateNav();
+}
+function heading(){
+  if(pos && pos.speed != null && pos.speed > 0.5 && moveHeading != null) return [moveHeading, 'Gehrichtung'];
+  if(compass != null) return [compass, 'Kompass'];
+  if(moveHeading != null) return [moveHeading, 'Gehrichtung'];
+  return [null, ''];
+}
+
+/* ---------- Navigation ---------- */
+let curDist = null;
+function updateNav(){
+  const t = points[sel];
+  $('measureBtn').disabled = !(t && pos);
+  if(!t){ $('tname').textContent = 'Kein Stein gewählt'; $('dist').textContent = '–'; curDist = null; return; }
+  $('tname').textContent = t.name + (t.found ? ' ✓' : '');
+  if(!pos){ $('dist').textContent = '–'; $('sub').textContent = 'Warte auf GPS …'; curDist = null; return; }
+  const o = offset(pos.lat, pos.lon, t.lat, t.lon); curDist = o.d;
+  $('dist').textContent = fmtDist(o.d);
+  const [h, src] = heading();
+  if(o.d < 2){
+    $('arrowWrap').style.display = 'none'; $('target').style.display = 'block';
+    const scale = o.d < 0.3 ? 0.3 : 2, k = 100/scale;
+    $('tscale').textContent = 'Rand = ' + (scale < 1 ? Math.round(scale*100) + ' cm' : scale + ' m');
+    let x = -o.dE, y = o.dN;                       // ich relativ zum Stein (Nord oben)
+    if(h != null){ const r = -h*D2R; [x, y] = [x*Math.cos(r) - y*Math.sin(r), x*Math.sin(r) + y*Math.cos(r)]; }
+    const len = Math.hypot(x, y), m = Math.min(1, scale/Math.max(len, 1e-9));
+    $('me').setAttribute('transform', `translate(${x*k*m},${-y*k*m})`);
+    $('sub').textContent = `N ${o.dN >= 0 ? '+' : ''}${Math.round(o.dN*100)} cm · O ${o.dE >= 0 ? '+' : ''}${Math.round(o.dE*100)} cm` + (h != null ? ' · oben = Blickrichtung' : ' · oben = Norden');
+  } else {
+    $('arrowWrap').style.display = 'block'; $('target').style.display = 'none';
+    const rot = h != null ? o.brg - h : o.brg;
+    $('arrow').style.transform = `rotate(${rot}deg)`;
+    $('sub').textContent = h != null ? `Richtung aus ${src}` : `Pfeil zeigt nach Norden-bezogen (${Math.round(o.brg)}°) – losgehen für Richtung`;
+  }
+}
+
+/* ---------- Ton ---------- */
+function initAudio(){ if(!audio) audio = new (window.AudioContext || window.webkitAudioContext)(); audio.resume(); }
+function freqFor(d){ return 600 + 800*Math.max(0, Math.min(1, 1 - d/20)); }
+function beep(f, ms){
+  const o = audio.createOscillator(), g = audio.createGain();
+  o.frequency.value = f; o.type = 'sine'; g.gain.value = 0.25;
+  o.connect(g).connect(audio.destination); o.start(); o.stop(audio.currentTime + ms/1000);
+}
+function contOn(){ if(contOsc) return; contOsc = audio.createOscillator(); const g = audio.createGain(); g.gain.value = 0.2; contOsc.frequency.value = 1500; contOsc.connect(g).connect(audio.destination); contOsc.start(); }
+function contOff(){ if(contOsc){ contOsc.stop(); contOsc = null; } }
+function beepLoop(){
+  const d = curDist;
+  if(!soundOn || !audio || d == null || measuring){ contOff(); return setTimeout(beepLoop, 300); }
+  if(d < 0.05){ contOn(); if(navigator.vibrate) navigator.vibrate(150); return setTimeout(beepLoop, 200); }
+  contOff();
+  beep(freqFor(d), 70);
+  if(d < 1 && navigator.vibrate) navigator.vibrate(40);
+  let iv;
+  if(d > 30) iv = 1500;
+  else if(d > 5) iv = 300 + (d-5)/25*1200;
+  else if(d > 1) iv = 130 + (d-1)/4*170;
+  else iv = 70 + d*60;
+  setTimeout(beepLoop, iv);
+}
+
+/* ---------- Start ---------- */
+let wakeLock = null;
+async function keepAwake(){ try{ if('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); }catch(e){} }
+document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible' && wakeLock) keepAwake(); });
+$('startBtn').onclick = async () => {
+  initAudio();
+  if(!navigator.geolocation){ msg('Dieses Gerät liefert keine Position.'); return; }
+  navigator.geolocation.watchPosition(onPos, e => msg('GPS-Fehler: ' + e.message), {enableHighAccuracy: true, maximumAge: 0, timeout: 15000});
+  try{
+    if(typeof DeviceOrientationEvent !== 'undefined' && DeviceOrientationEvent.requestPermission) await DeviceOrientationEvent.requestPermission();
+  }catch(e){}
+  if('ondeviceorientationabsolute' in window) window.addEventListener('deviceorientationabsolute', onOrient);
+  else window.addEventListener('deviceorientation', onOrient);
+  keepAwake();
+  $('startBtn').style.display = 'none';
+  msg('Läuft. Bildschirm bleibt an.');
+  beepLoop();
+};
+
+/* ---------- Messen ---------- */
+$('measureBtn').onclick = () => {
+  const t = points[sel]; if(!t || measuring) return;
+  measuring = []; let s = 5;
+  $('measureBtn').disabled = true; $('measureBtn').textContent = 'Messe … ' + s;
+  const iv = setInterval(() => {
+    s--; $('measureBtn').textContent = 'Messe … ' + s;
+    if(s > 0) return;
+    clearInterval(iv);
+    const m = measuring; measuring = false;
+    $('measureBtn').textContent = 'Gefunden – Position messen (5 s)';
+    if(!m.length){ msg('Keine Positionen empfangen.'); updateNav(); return; }
+    const lat = m.reduce((a, p) => a + p.lat, 0)/m.length, lon = m.reduce((a, p) => a + p.lon, 0)/m.length;
+    const acc = Math.max(...m.map(p => p.acc));
+    const o = offset(t.lat, t.lon, lat, lon);
+    t.found = {lat, lon, dev: o.d, dN: o.dN, dE: o.dE, acc, n: m.length, time: new Date().toISOString()};
+    save(); renderList(); updateNav();
+    msg(`${t.name}: Abweichung ${Math.round(o.d*100)} cm (${m.length} Messungen, schlechteste Genauigkeit ± ${Math.round(acc*100)} cm)`);
+    if(audio){ beep(900, 120); setTimeout(() => beep(1300, 200), 160); }
+  }, 1000);
+};
+
+/* ---------- Export / Leeren / Ton ---------- */
+$('exportBtn').onclick = () => {
+  const rows = [['Name','Soll_Breite','Soll_Laenge','Soll_E_UTM32','Soll_N_UTM32','Gefunden','Ist_Breite','Ist_Laenge','Ist_E_UTM32','Ist_N_UTM32','Abweichung_cm','dN_cm','dE_cm','Genauigkeit_cm','Messungen','Zeit']];
+  points.forEach(p => {
+    const [e, n] = llToUtm(p.lat, p.lon), f = p.found;
+    const fi = f ? llToUtm(f.lat, f.lon) : null;
+    rows.push([p.name, p.lat.toFixed(9), p.lon.toFixed(9), e.toFixed(3), n.toFixed(3), f ? 'ja' : 'nein',
+      f ? f.lat.toFixed(9) : '', f ? f.lon.toFixed(9) : '', fi ? fi[0].toFixed(3) : '', fi ? fi[1].toFixed(3) : '',
+      f ? Math.round(f.dev*100) : '', f ? Math.round(f.dN*100) : '', f ? Math.round(f.dE*100) : '', f ? Math.round(f.acc*100) : '', f ? f.n : '', f ? f.time : '']);
+  });
+  const csv = rows.map(r => r.map(v => /^-?\d+\.\d+$/.test(String(v)) ? String(v).replace('.', ',') : String(v).replace(/;/g, ',')).join(';')).join('\r\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['\ufeff' + csv], {type: 'text/csv'}));
+  a.download = 'grenzsteine_' + new Date().toISOString().slice(0, 10) + '.csv'; a.click();
+};
+$('clearBtn').onclick = () => { if(confirm('Alle Punkte und Messungen löschen?')){ points = []; sel = -1; save(); renderList(); updateNav(); } };
+$('soundBtn').onclick = () => { soundOn = !soundOn; $('soundBtn').textContent = 'Ton: ' + (soundOn ? 'an' : 'aus'); if(!soundOn) contOff(); };
+
+load(); renderList(); updateNav();
+</script>
+</body>
+</html>
