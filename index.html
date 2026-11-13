@@ -41,6 +41,7 @@ button:active{transform:scale(.98)}
 .bar{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid var(--border);padding:10px 12px calc(10px + env(safe-area-inset-bottom));display:flex;gap:8px;justify-content:center}
 .bar button{flex:1;max-width:180px}
 input[type=file]{display:none}
+[hidden]{display:none!important}
 #msg{min-height:18px}
 </style>
 </head>
@@ -94,7 +95,14 @@ input[type=file]{display:none}
     <div class="row" style="justify-content:space-between;margin-bottom:6px">
       <strong>Grenzsteine</strong>
       <label class="btn" for="file">Importieren</label>
-      <input type="file" id="file">
+      <input type="file" id="file" accept="*/*">
+    </div>
+    <div class="row" style="justify-content:flex-end;margin-bottom:6px">
+      <button id="pasteBtn">Text einfügen</button>
+    </div>
+    <div id="pasteBox" hidden style="margin-bottom:8px">
+      <textarea id="pasteTxt" rows="6" style="width:100%;font:14px ui-monospace,monospace;padding:8px;border-radius:8px;border:1px solid var(--border)" placeholder="Stein 1;612345,67;5401234,56&#10;Stein 2;612350,12;5401240,03"></textarea>
+      <div class="row" style="margin-top:6px"><button id="pasteOk" class="primary">Übernehmen</button><button id="pasteCancel">Abbrechen</button></div>
     </div>
     <div class="muted" style="margin-bottom:6px">CSV (Name;Rechtswert;Hochwert in UTM32 oder Name;Breite;Länge), KML, GPX, GeoJSON oder Shapefile als ZIP</div>
     <ul id="plist"></ul>
@@ -195,6 +203,15 @@ function parseGeoJSON(gj){
   });
 }
 function loadScript(src){ return new Promise((ok, err) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = err; document.head.appendChild(s); }); }
+$('pasteBtn').onclick = () => { $('pasteBox').hidden = false; $('pasteTxt').focus(); };
+$('pasteCancel').onclick = () => { $('pasteBox').hidden = true; };
+$('pasteOk').onclick = () => {
+  const t = $('pasteTxt').value.trim(); if(!t){ msg('Kein Text eingefügt.'); return; }
+  const before = points.length;
+  try{ if(t.startsWith('{')) parseGeoJSON(JSON.parse(t)); else if(t.startsWith('<')) parseXML(t); else parseCSV(t); }catch(err){ msg('Import fehlgeschlagen: ' + err.message); }
+  msg((points.length - before) + ' Punkte importiert.');
+  $('pasteTxt').value = ''; $('pasteBox').hidden = true; save(); renderList(); fitStones();
+};
 $('file').addEventListener('change', async e => {
   const file = e.target.files[0]; if(!file) return;
   const before = points.length, n = file.name.toLowerCase();
